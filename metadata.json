@@ -1,0 +1,7 @@
+{
+  "name": "开发版---auto-mark",
+  "description": "SMECO Airbus A319/A320/A321 进/出场照片水印系统",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

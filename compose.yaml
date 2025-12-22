@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  gemini-app:
+    # 【核心部分】：这代表在当前文件夹寻找 Dockerfile 进行构建
+    build: .
+
+    # 容器的名字，可以自定义
+    container_name: auto-mark
+    ports:
+      # "NAS 访问端口 : 容器内部程序端口"
+      # 例如你的程序监听 3000，你想通过 NAS IP 的 8888 端口访问
+      - "8886:3000"
+
+    environment:
+      # 必填：你的 Google AI Studio API Key
+      - GEMINI_API_KEY=1332313
+      # 可选：设置时区
+      - TZ=Asia/Shanghai
+
+    # 确保 NAS 重启后，这个 APP 会自动启动
+    restart: always
