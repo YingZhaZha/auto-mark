@@ -7,11 +7,13 @@ import { Logger } from './services/loggerService.ts';
 
 // ------------------- CONSTANTS & TYPES -------------------
 
-const APP_VERSION = "V1.4.5"; // Copyright Info Restored
+const APP_VERSION = "V1.4.7"; // Gallery UI Polish
 
 // CHANGELOG: Dates are hardcoded to ensure consistency regardless of system time
 // NOTE: When releasing a NEW version, manually add a new entry at the top with the CURRENT date.
 const CHANGELOG = [
+  { version: "V1.4.7", date: "2025-12-24", content: "UI 优化：相册管理模式下，左上角按钮改为「取消」，操作更符合直觉。\nUI 优化：管理模式底部按钮增加文字标签（分享、保存、删除），并更换了更直观的保存图标。" },
+  { version: "V1.4.6", date: "2025-12-24", content: "新功能：相册管理模式新增「分享」和「保存」按钮，支持多张照片原图批量分享（不拼长图）或批量保存。\n新功能：大图预览界面新增「分享」和「保存」按钮，方便单张快速操作。" },
   { version: "V1.4.5", date: "2025-12-23", content: "UI 调整：应用户要求，在首页底部恢复显示版权信息（© 802711）。" },
   { version: "V1.4.4", date: "2025-12-23", content: "UI 调整：移除首页底部版权文字；调整相册界面底部按钮布局，现在“相册”与“拍摄”按钮等宽显示。" },
   { version: "V1.4.3", date: "2025-12-23", content: "文档更新：使用说明新增「故障排除」章节，详细说明了软件异常时的处理方案及清空缓存的风险提示。" },
@@ -641,6 +643,97 @@ export const App: React.FC = () => {
     }
   };
 
+  // --- UNIVERSAL SHARE & SAVE LOGIC (SINGLE & BATCH) ---
+
+  const handleUniversalShare = async (photoIds: string[]) => {
+    if (photoIds.length === 0) return;
+    
+    setIsProcessing(true);
+    setLoadingText(photoIds.length === 1 ? "正在准备分享..." : "正在打包照片...");
+
+    try {
+      const files: File[] = [];
+      
+      for (const id of photoIds) {
+        const photo = await getPhotoById(id);
+        if (photo && photo.src) {
+          const response = await fetch(photo.src);
+          const blob = await response.blob();
+          const filename = `${regNumber || 'IMG'}_${photo.doorId}_${photo.timestamp.slice(-5)}.jpg`.replace(/[:.]/g, '');
+          files.push(new File([blob], filename + ".jpg", { type: 'image/jpeg' }));
+        }
+      }
+
+      if (files.length === 0) {
+        throw new Error("No files found");
+      }
+
+      if (navigator.canShare && navigator.canShare({ files })) {
+        await navigator.share({
+          files: files,
+          title: 'CABIN AUTO MARK',
+          text: `分享 ${files.length} 张照片`
+        });
+        Logger.success("SHARE_SUCCESS", `Shared ${files.length} photos`);
+      } else {
+        setToastMessage("当前浏览器不支持直接分享");
+        setTimeout(() => setToastMessage(null), 2000);
+      }
+    } catch (e) {
+      console.error("Share failed", e);
+      setToastMessage("分享失败");
+      setTimeout(() => setToastMessage(null), 2000);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleUniversalSave = async (photoIds: string[]) => {
+    if (photoIds.length === 0) return;
+
+    setIsProcessing(true);
+    setLoadingText("正在保存...");
+    setToastMessage("开始保存到相册...");
+
+    try {
+      // Loop with slight delay to prevent browser throttling downloads
+      for (let i = 0; i < photoIds.length; i++) {
+        const id = photoIds[i];
+        const photo = await getPhotoById(id);
+        
+        if (photo && photo.src) {
+           const link = document.createElement('a');
+           link.href = photo.src;
+           const filename = `${regNumber || 'IMG'}_${photo.doorId}_${photo.timestamp.slice(-8)}.jpg`.replace(/[:]/g, '');
+           link.download = filename;
+           document.body.appendChild(link);
+           link.click();
+           document.body.removeChild(link);
+           
+           // Small delay between downloads if batch
+           if (photoIds.length > 1) {
+             await new Promise(r => setTimeout(r, 300));
+           }
+        }
+      }
+      
+      setTimeout(() => setToastMessage("保存完成"), 500);
+      setTimeout(() => setToastMessage(null), 2500);
+      
+      if (isManageMode) {
+         setIsManageMode(false);
+         setSelectedPhotoIds(new Set());
+      }
+
+    } catch (e) {
+      console.error("Save failed", e);
+      setToastMessage("保存失败");
+      setTimeout(() => setToastMessage(null), 2000);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleClearAircraftPhotos = () => {
     vibrateShort();
     setShowClearAircraftConfirm(true);
@@ -1035,18 +1128,26 @@ export const App: React.FC = () => {
     return (
       <div className="h-full w-full flex flex-col bg-ios-bg safe-area-bottom">
         <div className="h-16 bg-white border-b border-slate-200 z-20 flex items-center justify-between px-4 shrink-0">
-          <button onClick={goBack} className="text-ios-blue text-[17px] flex items-center gap-1 font-medium active:opacity-60">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg>
-            返回
-          </button>
+          {isManageMode ? (
+             <button onClick={() => { setIsManageMode(false); setSelectedPhotoIds(new Set()); }} className="text-[17px] font-medium text-slate-900 active:opacity-60 pl-1">
+               取消
+             </button>
+          ) : (
+             <button onClick={goBack} className="text-ios-blue text-[17px] flex items-center gap-1 font-medium active:opacity-60">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg>
+                返回
+             </button>
+          )}
+          
           <span className="font-bold text-[17px] text-slate-900 absolute left-1/2 -translate-x-1/2">{activeDoor.label}</span>
+          
           <div className="w-16 flex justify-end">
-            {currentPhotos.length > 0 && (
+            {!isManageMode && currentPhotos.length > 0 && (
               <button 
-                onClick={() => setIsManageMode(!isManageMode)} 
-                className={`text-[17px] font-medium transition-colors ${isManageMode ? 'text-ios-blue font-bold' : 'text-ios-blue'}`}
+                onClick={() => setIsManageMode(true)} 
+                className="text-[17px] font-medium text-ios-blue active:opacity-60"
               >
-                {isManageMode ? '完成' : '管理'}
+                管理
               </button>
             )}
           </div>
@@ -1090,20 +1191,41 @@ export const App: React.FC = () => {
         </div>
         
         {/* Bottom Action Bar */}
-        <div className="bg-white/90 backdrop-blur-md border-t border-slate-200 p-4 safe-area-bottom shrink-0">
+        <div className="bg-white/90 backdrop-blur-md border-t border-slate-200 px-4 py-2 safe-area-bottom shrink-0">
            {isManageMode ? (
-             <div className="flex items-center justify-between h-12">
-               <span className="text-slate-500 font-medium text-[15px]">已选 {selectedPhotoIds.size} 张</span>
+             <div className="flex items-center justify-between h-14">
+               {/* Share Button (Left) */}
+               <button 
+                 onClick={() => handleUniversalShare(Array.from(selectedPhotoIds) as string[])}
+                 disabled={selectedPhotoIds.size === 0}
+                 className={`flex-1 flex flex-col items-center justify-center gap-1 active:opacity-50 disabled:opacity-30 transition-opacity ${selectedPhotoIds.size > 0 ? 'text-ios-blue' : 'text-slate-400'}`}
+               >
+                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
+                 <span className="text-[10px] font-medium">分享</span>
+               </button>
+               
+               {/* Save Button (Middle) */}
+               <button 
+                 onClick={() => handleUniversalSave(Array.from(selectedPhotoIds) as string[])}
+                 disabled={selectedPhotoIds.size === 0}
+                 className={`flex-1 flex flex-col items-center justify-center gap-1 active:opacity-50 disabled:opacity-30 transition-opacity ${selectedPhotoIds.size > 0 ? 'text-ios-blue' : 'text-slate-400'}`}
+               >
+                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 4v12m0 0l-4-4m4 4l4-4M4 18v2a2 2 0 002 2h12a2 2 0 002-2v-2" /></svg>
+                 <span className="text-[10px] font-medium">保存</span>
+               </button>
+
+               {/* Delete Button (Right) */}
                <button 
                  onClick={handleBatchDelete}
                  disabled={selectedPhotoIds.size === 0}
-                 className={`font-bold text-[17px] ${selectedPhotoIds.size > 0 ? 'text-ios-red' : 'text-slate-300'}`}
+                 className={`flex-1 flex flex-col items-center justify-center gap-1 active:opacity-50 disabled:opacity-30 transition-opacity ${selectedPhotoIds.size > 0 ? 'text-ios-red' : 'text-slate-400'}`}
                >
-                 删除
+                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                 <span className="text-[10px] font-medium">删除 ({selectedPhotoIds.size})</span>
                </button>
              </div>
            ) : (
-             <div className="flex gap-4">
+             <div className="flex gap-4 pt-1">
                <button onClick={triggerGallery} className="flex-1 h-12 bg-slate-100 rounded-xl flex items-center justify-center gap-2 text-slate-700 font-bold active:bg-slate-200 transition-colors">
                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                  相册
@@ -1139,7 +1261,7 @@ export const App: React.FC = () => {
           )}
         </div>
 
-        <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/80 to-transparent z-10 flex items-start justify-center pt-8 gap-12 safe-area-bottom">
+        <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/80 to-transparent z-10 flex items-start justify-between px-10 pt-8 safe-area-bottom">
            <button 
              onClick={() => {
                  setSelectedPhotoIds(new Set([activePhoto.id]));
@@ -1151,6 +1273,26 @@ export const App: React.FC = () => {
                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
              </div>
              <span className="text-xs font-medium">删除</span>
+           </button>
+
+           <button 
+             onClick={() => handleUniversalSave([activePhoto.id])}
+             className="flex flex-col items-center gap-2 text-white/80 active:text-white transition-colors group"
+           >
+             <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center group-active:bg-white/20 transition-colors">
+               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 4v12m0 0l-4-4m4 4l4-4M4 18v2a2 2 0 002 2h12a2 2 0 002-2v-2" /></svg>
+             </div>
+             <span className="text-xs font-medium">保存</span>
+           </button>
+
+           <button 
+             onClick={() => handleUniversalShare([activePhoto.id])}
+             className="flex flex-col items-center gap-2 text-white/80 active:text-white transition-colors group"
+           >
+             <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center group-active:bg-white/20 transition-colors">
+               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
+             </div>
+             <span className="text-xs font-medium">分享</span>
            </button>
            
            <button 
